@@ -1180,3 +1180,22 @@ test("sends no cache breakpoints when Pi disables prompt caching", () => {
   const cached = rewriteInitialRequest(Buffer.from(JSON.stringify(body)), frames, [body.messages[1]], []).toString("utf8");
   assert.match(cached, /"cache_control":\{"type":"ephemeral"/u);
 });
+
+test("drops Claude Code's date reminder from the middle so warm and fresh turns share a prefix", () => {
+  const date = (day: string) => ({ role: "system", content: `Today's date is 2026-11-${day}.` });
+  const history = [
+    { role: "user", content: [text("first")] },
+    { role: "system", content: [text("environment")] },
+    { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "mcp__pi__read", input: {} }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "file" }] },
+  ];
+  const answer = { role: "assistant", content: [text("done")] };
+  const next = { role: "user", content: [text("next")] };
+  // A warm process keeps the reminder where its previous request ended; a fresh one appends it.
+  const warm = rewrite([...history, date("25"), answer, next], framesFor([...history, answer, next]));
+  const fresh = rewrite([...history, answer, next, date("25")], framesFor([...history, answer, next]));
+
+  assert.deepEqual(withoutMarkers(warm), withoutMarkers(fresh.slice(0, -1)));
+  assert.deepEqual(withoutMarkers(fresh.at(-1)), date("25"));
+  assert.deepEqual(withoutMarkers(warm[1]), history[1]);
+});
