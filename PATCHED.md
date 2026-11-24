@@ -36,6 +36,7 @@ flowchart TD
 | upstream PR #51 | fix: tag replayed assistant turns with their model (2 commits) | open upstream |
 | losandes fork `4a64057` | fix: give models newer than Pi's catalog their predecessor's limits | fork-only, no upstream PR |
 | upstream PR #66 | fix: add the per-message effort beta for forwarded system config | open upstream |
+| upstream PR #74 | fix: disable Claude Code attachments so @tokens add no system notice | open upstream |
 
 Update this table when you add or drop a change.
 
