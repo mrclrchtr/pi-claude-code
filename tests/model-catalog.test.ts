@@ -4,6 +4,7 @@ import {
   CLAUDE_CODE_MODELS,
   modelFromDiscovery,
   nativeModel,
+  supportsDisabledThinking,
   supportsNativeToolChanges,
 } from "../src/model-catalog.ts";
 
@@ -97,4 +98,30 @@ test("gives a model newer than Pi's catalog its predecessor's context window and
     description: "Dated",
   });
   assert.equal(dated.contextWindow, 200_000);
+});
+
+test("Pi's catalog decides whether thinking can be disabled; Claude Code's answer covers unlisted models", () => {
+  // Claude Code reports Haiku 5.5 as unable to disable thinking, but Pi's catalog and the API accept it.
+  const haiku = {
+    value: "haiku",
+    resolvedModel: "claude-haiku-5-5",
+    displayName: "Haiku 5.5",
+    description: "Fastest for quick answers",
+    supportsAdaptiveThinking: true,
+    supportsThinkingOff: false,
+  };
+  modelFromDiscovery(haiku);
+  assert.equal(supportsDisabledThinking("claude-haiku-5-5"), true);
+
+  const unlisted = {
+    value: "claude-future-9",
+    resolvedModel: "claude-future-9",
+    displayName: "Future 9",
+    description: "Not in Pi's catalog",
+    supportsAdaptiveThinking: true,
+  };
+  modelFromDiscovery(unlisted);
+  assert.equal(supportsDisabledThinking("claude-future-9"), false, "an unlisted adaptive model is assumed newer");
+  modelFromDiscovery({ ...unlisted, supportsThinkingOff: true });
+  assert.equal(supportsDisabledThinking("claude-future-9"), true);
 });

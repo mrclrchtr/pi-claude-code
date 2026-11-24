@@ -16,6 +16,8 @@ export interface DiscoveredClaudeModel {
   supportsAdaptiveThinking?: boolean;
   supportsFastMode?: boolean;
   supportsAutoMode?: boolean;
+  /** Reported by newer Claude Code versions: whether `thinking: { type: "disabled" }` is accepted. */
+  supportsThinkingOff?: boolean;
 }
 
 // Pi exposes providers/all to extensions, but not individual generated model files.
@@ -182,9 +184,13 @@ export function modelFromDiscovery(info: DiscoveredClaudeModel): ClaudeCodeModel
   ADAPTIVE_THINKING_BY_ID.set(id, info.supportsAdaptiveThinking === true);
   DISABLED_THINKING_BY_ID.set(
     id,
-    // Pi marks models that reject `thinking.type: disabled` with `off: null`. Unknown
-    // adaptive models are assumed to be newer and therefore unable to disable thinking.
-    builtin ? builtin.thinkingLevelMap?.off !== null : info.supportsAdaptiveThinking !== true,
+    // Pi marks models that reject `thinking.type: disabled` with `off: null`, and its catalog
+    // is maintained, so it wins for known models: Claude Code reports Haiku 5.5 as unable to
+    // disable thinking although the API accepts it. For a model Pi does not list yet, Claude
+    // Code's own answer is better than assuming that a newer adaptive model cannot disable it.
+    builtin
+      ? builtin.thinkingLevelMap?.off !== null
+      : (info.supportsThinkingOff ?? info.supportsAdaptiveThinking !== true),
   );
   return builtin ? fromBuiltin(info, id, builtin) : fallbackModel(info, id);
 }
