@@ -161,6 +161,7 @@ function nativeContent(content: NativeContentBlock[]): AssistantMessage["content
 class EventTranslator {
   private readonly nativeToContent = new Map<number, number>();
   private sawContentEvent = false;
+  private incompleteToolCall = false;
 
   constructor(
     private readonly model: Model<any>,
@@ -194,6 +195,9 @@ class EventTranslator {
         updateUsage(this.output, this.model, event.usage);
         break;
       }
+      case "message_stop":
+        this.closeNonToolBlocks();
+        break;
     }
   }
 
@@ -202,6 +206,7 @@ class EventTranslator {
     usage: NativeUsage,
     initialSystemMessages?: unknown[],
   ): void {
+    this.assertNoOpenToolCalls();
     const authoritative = nativeContent(message.content);
     if (!this.sawContentEvent) {
       this.emitComplete(authoritative);
@@ -279,12 +284,34 @@ class EventTranslator {
     }
   }
 
+  private closeNonToolBlocks(): void {
+    for (const nativeIndex of [...this.nativeToContent.keys()]) {
+      const contentIndex = this.nativeToContent.get(nativeIndex)!;
+      if (this.output.content[contentIndex]?.type === "toolCall") this.incompleteToolCall = true;
+      else this.stopBlock(nativeIndex);
+    }
+  }
+
+  private assertNoOpenToolCalls(): void {
+    if (this.incompleteToolCall) throw new Error("Claude Code message_stop arrived with an incomplete tool call");
+    for (const contentIndex of this.nativeToContent.values()) {
+      if (this.output.content[contentIndex]?.type === "toolCall") {
+        throw new Error("Claude Code message_stop arrived with an incomplete tool call");
+      }
+    }
+  }
+
   private stopBlock(nativeIndex: number): void {
     const contentIndex = this.nativeToContent.get(nativeIndex);
     if (contentIndex === undefined) return;
+    this.nativeToContent.delete(nativeIndex);
     const block = this.output.content[contentIndex] as IndexedBlock | undefined;
     if (!block) return;
     delete (block as Partial<IndexedBlock>).nativeIndex;
+    if (block.type === "toolCall" && this.incompleteToolCall) {
+      delete (block as Partial<IndexedToolCall>).partialJson;
+      return;
+    }
     if (block.type === "text") {
       this.stream.push({ type: "text_end", contentIndex, content: block.text, partial: this.output });
     } else if (block.type === "thinking") {

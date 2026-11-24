@@ -1280,7 +1280,10 @@ class ClaudeProcess {
           // only retry left. Word transient failures so it recognizes them.
           if (this.relay.status === 200 && !this.relay.capture.complete && !upstreamError) {
             // A dropped stream with no upstream error is a transport failure.
-            throw new Error(`Claude Code upstream stream ended before message_stop (${detail})`);
+            const failure = this.relay.capture.incompleteToolCall
+              ? "upstream request failed with an incomplete tool call after message_stop"
+              : "upstream stream ended before message_stop";
+            throw new Error(`Claude Code ${failure} (${detail})`);
           }
           if (this.relay.status === undefined && this.relay.upstreamFailed) {
             // The connection to Anthropic failed before any response status.

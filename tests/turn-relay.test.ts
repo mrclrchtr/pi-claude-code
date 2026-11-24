@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as http from "node:http";
 import * as net from "node:net";
 import test from "node:test";
-import { describeFailure, TurnRelay } from "../src/turn-relay.ts";
+import { AnthropicCapture, describeFailure, TurnRelay } from "../src/turn-relay.ts";
 
 function listen(server: http.Server): Promise<number> {
   return new Promise((resolve) => {
@@ -234,6 +234,55 @@ test("surfaces an error event from an otherwise successful SSE stream", async ()
     await relay.close();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
+});
+
+test("does not complete a zero-delta tool block at message_stop", () => {
+  const usage = { input_tokens: 2, output_tokens: 1 };
+  const events = [
+    { type: "message_start", message: { id: "m1", role: "assistant", content: [], usage } },
+    { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tool1", name: "demo", input: {} } },
+    { type: "message_delta", delta: { stop_reason: "tool_use" }, usage },
+    { type: "message_stop" },
+  ];
+  const capture = new AnthropicCapture();
+  capture.feed(new TextEncoder().encode(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")));
+  capture.finish();
+  assert.equal(capture.complete, false);
+});
+
+test("captures a normally closed tool call", () => {
+  const usage = { input_tokens: 2, output_tokens: 1 };
+  const events = [
+    { type: "message_start", message: { id: "m1", role: "assistant", content: [], usage } },
+    { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tool1", name: "demo", input: {} } },
+    { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"query":"*"}' } },
+    { type: "content_block_stop", index: 0 },
+    { type: "message_delta", delta: { stop_reason: "tool_use" }, usage },
+    { type: "message_stop" },
+  ];
+  const capture = new AnthropicCapture();
+  capture.feed(new TextEncoder().encode(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")));
+  capture.finish();
+  assert.equal(capture.complete, true);
+  assert.equal(capture.incompleteToolCall, false);
+  assert.deepEqual(capture.message?.content[0], { type: "tool_use", id: "tool1", name: "demo", input: { query: "*" } });
+});
+
+test("a late tool stop cannot complete a cut tool call", () => {
+  const usage = { input_tokens: 2, output_tokens: 1 };
+  const events = [
+    { type: "message_start", message: { id: "m1", role: "assistant", content: [], usage } },
+    { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tool1", name: "demo", input: {} } },
+    { type: "message_delta", delta: { stop_reason: "tool_use" }, usage },
+    { type: "message_stop" },
+    { type: "content_block_stop", index: 0 },
+    { type: "message_stop" },
+  ];
+  const capture = new AnthropicCapture();
+  capture.feed(new TextEncoder().encode(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")));
+  capture.finish();
+  assert.equal(capture.complete, false);
+  assert.equal(capture.incompleteToolCall, true);
 });
 
 test("describes relay failures with their error code and nested errors", () => {

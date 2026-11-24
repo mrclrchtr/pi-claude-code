@@ -289,3 +289,135 @@ for await (const line of readline.createInterface({input: process.stdin, crlfDel
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
+
+type CutBlock = "text" | "thinking" | "tool_use" | "mixed";
+
+async function runCutStream(blockType: CutBlock, closeBlock = false, lateStop = false) {
+  const root = await mkdtemp(join(tmpdir(), "pi-claude-code-cut-block-"));
+  try {
+    const script = join(root, "fake-claude.mjs");
+    const content =
+      blockType === "text"
+        ? [{ type: "text", text: "cut reply" }]
+        : blockType === "thinking"
+          ? [{ type: "thinking", thinking: "cut thought", signature: "sig" }]
+          : blockType === "tool_use"
+            ? [{ type: "tool_use", id: "tool_cut", name: "mcp__pi__demo", input: {} }]
+            : [
+                { type: "text", text: "cut reply" },
+                { type: "tool_use", id: "tool_cut", name: "mcp__pi__demo", input: {} },
+              ];
+    const initialBlock =
+      blockType === "text"
+        ? { type: "text", text: "" }
+        : blockType === "thinking"
+          ? { type: "thinking", thinking: "", signature: "" }
+          : content[0];
+    const usage = { input_tokens: 3, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+    const stopReason = blockType === "text" || blockType === "thinking" ? "end_turn" : "tool_use";
+    const hasToolCall = stopReason === "tool_use";
+    const events: unknown[] = [
+      { type: "message_start", message: { id: "m_cut", role: "assistant", content: [], usage } },
+      { type: "content_block_start", index: 0, content_block: initialBlock },
+    ];
+    if (blockType === "mixed") {
+      events.push(
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "cut reply" } },
+        { type: "content_block_start", index: 1, content_block: content[1] },
+      );
+    } else if (blockType === "text") {
+      events.push({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "cut reply" } });
+    } else if (blockType === "thinking") {
+      events.push(
+        { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "cut thought" } },
+        { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig" } },
+      );
+    }
+    if (closeBlock) events.push({ type: "content_block_stop", index: 0 });
+    events.push(
+      { type: "message_delta", delta: { stop_reason: stopReason }, usage },
+      { type: "message_stop" },
+    );
+    if (lateStop) events.push({ type: "content_block_stop", index: blockType === "mixed" ? 1 : 0 });
+    await writeFile(
+      script,
+      `#!/usr/bin/env node
+import readline from "node:readline";
+if (process.argv.includes("auth") && process.argv.includes("status")) {
+  console.log(JSON.stringify({loggedIn: true, authMethod: "claude.ai", subscriptionType: "test"}));
+  process.exit(0);
+}
+const content = ${JSON.stringify(content)};
+const events = ${JSON.stringify(events)};
+const usage = ${JSON.stringify(usage)};
+for await (const line of readline.createInterface({input: process.stdin, crlfDelay: Infinity})) {
+  const frame = JSON.parse(line);
+  if (frame.type !== "user") continue;
+  for (const event of events) console.log(JSON.stringify({type: "stream_event", event}));
+  console.log(JSON.stringify({type: "assistant", message: {id: "m_cut", role: "assistant", content, stop_reason: ${JSON.stringify(stopReason)}, usage}}));
+  console.log(JSON.stringify({type: "result", subtype: ${JSON.stringify(hasToolCall ? "error_max_turns" : "success")}, is_error: ${hasToolCall}, usage}));
+}
+`,
+      "utf8",
+    );
+    await chmod(script, 0o755);
+    const executable = script;
+    const model = CLAUDE_CODE_MODELS.find((candidate) => candidate.id === "claude-opus-5-5")!;
+    const tools = hasToolCall ? [{ name: "demo", description: "Demo", parameters: { type: "object" } }] : [];
+    const stream = streamClaudeCode(
+      model,
+      { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "test" }], timestamp: 0 }], tools } as never,
+      { env: { PI_CLAUDE_CODE_COMMAND: executable }, timeoutMs: 5_000, cacheRetention: "none" } as never,
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+    const message = await stream.result();
+    return { eventTypes, message };
+  } finally {
+    await closeClaudeProcesses();
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}
+
+test("closes cut text and thinking blocks exactly once at message_stop", async (t) => {
+  for (const blockType of ["text", "thinking"] as const) {
+    await t.test(blockType, async () => {
+      const { eventTypes, message } = await runCutStream(blockType);
+      const endEvent = blockType === "text" ? "text_end" : "thinking_end";
+      assert.equal(message.stopReason, "stop", message.errorMessage);
+      assert.equal(eventTypes.filter((type) => type === endEvent).length, 1);
+      assert(eventTypes.indexOf(endEvent) < eventTypes.indexOf("done"));
+    });
+  }
+});
+
+test("does not duplicate a text block closed before message_stop", async () => {
+  const { eventTypes, message } = await runCutStream("text", true);
+  assert.equal(message.stopReason, "stop", message.errorMessage);
+  assert.equal(eventTypes.filter((type) => type === "text_end").length, 1);
+});
+
+test("rejects a zero-delta tool block left open at message_stop", async () => {
+  const { eventTypes, message } = await runCutStream("tool_use");
+  assert.equal(message.stopReason, "error");
+  assert.match(message.errorMessage ?? "", /incomplete tool call/);
+  assert.equal(eventTypes.includes("done"), false);
+  assert.equal(eventTypes.includes("toolcall_end"), false);
+});
+
+test("a tool stop after message_stop cannot complete the tool call", async () => {
+  const { eventTypes, message } = await runCutStream("tool_use", false, true);
+  assert.equal(message.stopReason, "error");
+  assert.match(message.errorMessage ?? "", /incomplete tool call/);
+  assert.equal(eventTypes.includes("done"), false);
+  assert.equal(eventTypes.includes("toolcall_end"), false);
+});
+
+test("a mixed cut closes text but rejects the late tool block", async () => {
+  const { eventTypes, message } = await runCutStream("mixed", false, true);
+  assert.equal(message.stopReason, "error");
+  assert.match(message.errorMessage ?? "", /incomplete tool call/);
+  assert.equal(eventTypes.filter((type) => type === "text_end").length, 1);
+  assert.equal(eventTypes.includes("done"), false);
+  assert.equal(eventTypes.includes("toolcall_end"), false);
+});

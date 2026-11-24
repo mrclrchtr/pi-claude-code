@@ -12,6 +12,7 @@ function copy<T>(value: T): T {
 export class AnthropicCapture {
   message?: NativeMessage;
   complete = false;
+  incompleteToolCall = false;
   /** Error reported inside an otherwise successful (HTTP 200) event stream. */
   error?: string;
   /** The `error.type` of that stream error, such as `overloaded_error`. */
@@ -19,6 +20,7 @@ export class AnthropicCapture {
   private pending = "";
   private readonly decoder = new TextDecoder();
   private readonly argumentsByIndex = new Map<number, string>();
+  private readonly openToolIndices = new Set<number>();
 
   constructor(private readonly onEvent?: (event: AnthropicStreamEvent) => void) {}
 
@@ -57,6 +59,7 @@ export class AnthropicCapture {
         break;
       case "content_block_start":
         if (this.message) this.message.content[event.index] = copy(event.content_block);
+        if (event.content_block.type === "tool_use") this.openToolIndices.add(event.index);
         break;
       case "content_block_delta": {
         const block = this.message?.content[event.index];
@@ -72,6 +75,7 @@ export class AnthropicCapture {
         break;
       }
       case "content_block_stop": {
+        this.openToolIndices.delete(event.index);
         const block = this.message?.content[event.index];
         if (block?.type === "tool_use" && this.argumentsByIndex.has(event.index)) {
           const raw = this.argumentsByIndex.get(event.index) ?? "";
@@ -87,7 +91,8 @@ export class AnthropicCapture {
         }
         break;
       case "message_stop":
-        this.complete = !!this.message?.stop_reason && this.argumentsByIndex.size === 0;
+        this.incompleteToolCall ||= this.openToolIndices.size > 0 || this.argumentsByIndex.size > 0;
+        this.complete = !!this.message?.stop_reason && !this.incompleteToolCall;
         break;
       case "error": {
         const { type, message } = event.error ?? {};

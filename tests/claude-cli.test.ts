@@ -954,6 +954,24 @@ test("reports a dropped upstream stream as a retryable error", async () => {
   assert.equal(retryable, true);
 });
 
+test("reports an incomplete tool call without claiming message_stop was missing", async () => {
+  const { message, retryable } = await failingUpstreamTurn(async (request, response) => {
+    for await (const _chunk of request);
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    const usage = { input_tokens: 2, output_tokens: 1 };
+    const events = [
+      { type: "message_start", message: { id: "m1", role: "assistant", content: [], usage } },
+      { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tool1", name: "demo", input: {} } },
+      { type: "message_delta", delta: { stop_reason: "tool_use" }, usage },
+      { type: "message_stop" },
+    ];
+    response.end(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
+  });
+  assert.match(message, /incomplete tool call/);
+  assert.doesNotMatch(message, /ended before message_stop/);
+  assert.equal(retryable, true);
+});
+
 test("reports an upstream connection lost before a response as a retryable error", async () => {
   // The connection drops before Anthropic sends a status.
   const hangUp = await failingUpstreamTurn(async (request) => {
