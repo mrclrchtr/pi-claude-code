@@ -678,6 +678,29 @@ function deriveInitialSystemMessages(body: Buffer | undefined): unknown[] | unde
   return systems.length ? structuredClone(systems) : undefined;
 }
 
+const DATE_REMINDER = /^Today's date is \d{4}-\d{2}-\d{2}\.$/u;
+
+/**
+ * Drop Claude Code's date reminders from the middle of the history. A fresh process appends the
+ * reminder after the newest message; a warm process keeps it where its previous request had it.
+ * When a warm turn is followed by a fresh one, the two layouts differ from that point on and, as
+ * observed when the date changed at midnight, the prompt cache missed almost the whole history.
+ * Reminders in the leading system messages or at the tail are kept.
+ */
+function withoutStaleDateReminders(messages: NativeRequestMessage[]): NativeRequestMessage[] {
+  let leadingEnd = 1;
+  while (messages[leadingEnd]?.role === "system") leadingEnd += 1;
+  let trailingStart = messages.length;
+  while (trailingStart > leadingEnd && messages[trailingStart - 1]?.role === "system") trailingStart -= 1;
+  return messages.filter(
+    (message, index) =>
+      index < leadingEnd ||
+      index >= trailingStart ||
+      message.role !== "system" ||
+      !DATE_REMINDER.test(contentText(message.content).trim()),
+  );
+}
+
 function contentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -877,6 +900,11 @@ export function rewriteInitialRequest(
       if (!trailingText || !initialText.includes(trailingText)) break;
       messages.pop();
     }
+  }
+
+  if (messages) {
+    messages = withoutStaleDateReminders(messages);
+    payload.messages = messages;
   }
 
   if (nativeSystemInjections) {
