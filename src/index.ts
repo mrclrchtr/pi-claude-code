@@ -1,9 +1,16 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getClaudeStatus } from "./claude-cli.ts";
+import { closeClaudeProcesses, getClaudeStatus } from "./claude-cli.ts";
 import { claudeCodeEnv, createClaudeCodeProvider } from "./provider.ts";
 
 export default function claudeCodeExtension(pi: ExtensionAPI): void {
   pi.registerProvider(createClaudeCodeProvider());
+
+  // Pi cleans up session resources when a session ends, but /reload keeps the session and
+  // loads a fresh copy of this module. Close this copy's warm process for the session, which the
+  // new copy cannot reuse, instead of leaving it alive until it expires.
+  pi.on("session_shutdown", async (event, ctx) => {
+    if (event.reason === "reload") await closeClaudeProcesses(ctx.sessionManager.getSessionId());
+  });
 
   pi.registerCommand("claude-code-status", {
     description: "Check the Claude Code executable and subscription login",
