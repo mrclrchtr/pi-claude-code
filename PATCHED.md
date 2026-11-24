@@ -50,6 +50,7 @@ flowchart TD
 | local | fix: report Claude Code's one-hour prompt cache so Pi stops warming it every five minutes | no upstream PR yet |
 | local | feat: show Claude plan usage in Pi's footer | no upstream PR yet |
 | local | fix: send no cache breakpoints when Pi asks for cacheRetention none | no upstream PR yet |
+| local | fix: give Claude Code Pi's context window so it stops refusing prompts locally | no upstream PR yet |
 
 Update this table when you add or drop a change.
 
