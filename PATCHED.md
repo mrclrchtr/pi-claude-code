@@ -34,6 +34,8 @@ flowchart TD
 | upstream PR #57 | fix(replay): omit historical output config on fallback (2 commits) | open upstream |
 | upstream PR #56 | fix: report a server error event in a 200 stream as retryable | open upstream |
 | upstream PR #51 | fix: tag replayed assistant turns with their model (2 commits) | open upstream |
+| losandes fork `4a64057` | fix: give models newer than Pi's catalog their predecessor's limits | fork-only, no upstream PR |
+| upstream PR #66 | fix: add the per-message effort beta for forwarded system config | open upstream |
 
 Update this table when you add or drop a change.
 
