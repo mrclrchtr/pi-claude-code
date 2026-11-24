@@ -464,6 +464,7 @@ export function streamClaudeCode(
           options?.cacheRetention === "none" || options?.disableContinuation ? undefined : options?.sessionId,
         // Pi asks for no cache writes on one-off requests such as compaction and branch summaries.
         disablePromptCache: options?.cacheRetention === "none",
+        contextWindow: model.contextWindow,
         onEvent: (event) => translator.event(event),
       });
       translator.finish(response.message, response.usage, response.initialSystemMessages);

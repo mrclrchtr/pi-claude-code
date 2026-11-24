@@ -70,6 +70,8 @@ export interface RunClaudeInput {
    * compaction and branch summaries). Claude Code otherwise writes them to the one-hour cache.
    */
   disablePromptCache?: boolean;
+  /** Pi's context window for the model; Claude Code otherwise refuses prompts above its own guess. */
+  contextWindow?: number;
 }
 
 export interface RunClaudeOutput {
@@ -581,7 +583,7 @@ function processEnvironment(
   input: Record<string, string | undefined> | undefined,
   extraBody: Record<string, unknown>,
   purpose: "request" | "discovery" = "request",
-  disablePromptCache = false,
+  request: Pick<RunClaudeInput, "disablePromptCache" | "contextWindow"> = {},
 ): Record<string, string> {
   const env = claudeEnvironment({ ...process.env, ...input });
   const conflicts = conflictingEnvironment(env);
@@ -619,7 +621,14 @@ function processEnvironment(
     env.DISABLE_TELEMETRY = "1";
   }
   if (typeof extraBody.max_tokens === "number") env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(extraBody.max_tokens);
-  if (disablePromptCache) env.DISABLE_PROMPT_CACHING = "1";
+  if (request.disablePromptCache) env.DISABLE_PROMPT_CACHING = "1";
+  // With DISABLE_COMPACT, Claude Code takes this as the model's window. Without it, Claude Code
+  // refuses a prompt locally ("Prompt is too long", no API request) once its own token estimate
+  // exceeds the window it assumes, which can be smaller than Pi's for a model it does not know.
+  // Pi owns compaction, and an API rejection still maps to a context overflow.
+  if (request.contextWindow && request.contextWindow > 0) {
+    env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(request.contextWindow);
+  }
   return env;
 }
 
@@ -1044,7 +1053,7 @@ function frameHistoryHash(frames: NativeFrame[]): string {
 
 function launchPlan(input: RunClaudeInput): ClaudeLaunchPlan {
   const timeoutMs = input.timeoutMs ?? 180_000;
-  const env = processEnvironment(input.env, input.extraBody, "request", input.disablePromptCache);
+  const env = processEnvironment(input.env, input.extraBody, "request", input);
   return {
     env,
     timeoutMs,
