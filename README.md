@@ -114,10 +114,16 @@ Requests made through this extension count against your Claude subscription's
 usage quota and rate limits, the same as any other Claude Code usage. The
 extension does not give you separate or unlimited usage.
 
-After each response, Pi's footer shows how much of your plan's usage windows
+After each response, Pi's footer shows how much of each plan usage window
 Claude Code reports as used and when the tightest one resets, for example
-`Claude 7d 86% · reset Thu 23:00`. It turns yellow once Claude Code warns about
-a window and red once a window rejects requests.
+`7d ▰▰▰▰▱ 89% · Fable ▰▰▰▰▰ 99% · ↻ Sat 07:00`. A window turns yellow once
+Claude Code warns about it or it is 75% used, and red once it rejects requests
+or is 90% used. Fable responses also report Fable's own weekly window; it stays
+shown, dimmed, after responses from other models until it resets.
+
+With [SuPi's footer](https://github.com/mrclrchtr/supi) installed, the limits
+appear at the end of its session line with Nerd Font icons; otherwise they get
+their own status line.
 
 The extension ignores `ANTHROPIC_API_KEY` in Claude Code child processes without
 changing your environment. To avoid silently changing how you're authenticated
