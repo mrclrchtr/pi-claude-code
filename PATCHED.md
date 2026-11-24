@@ -37,6 +37,7 @@ flowchart TD
 | losandes fork `4a64057` | fix: give models newer than Pi's catalog their predecessor's limits | fork-only, no upstream PR |
 | upstream PR #66 | fix: add the per-message effort beta for forwarded system config | open upstream |
 | upstream PR #74 | fix: disable Claude Code attachments so @tokens add no system notice | open upstream |
+| upstream PR #75 | fix: start Claude Code in the session cwd instead of process.cwd() | open upstream |
 
 Update this table when you add or drop a change.
 
