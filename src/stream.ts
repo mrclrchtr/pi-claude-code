@@ -462,6 +462,8 @@ export function streamClaudeCode(
         // session's slot it would close the retained process and leave the next real turn to start another.
         sessionId:
           options?.cacheRetention === "none" || options?.disableContinuation ? undefined : options?.sessionId,
+        // Pi asks for no cache writes on one-off requests such as compaction and branch summaries.
+        disablePromptCache: options?.cacheRetention === "none",
         onEvent: (event) => translator.event(event),
       });
       translator.finish(response.message, response.usage, response.initialSystemMessages);

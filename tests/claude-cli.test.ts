@@ -1144,3 +1144,39 @@ test("reports a transient upstream stream error as retryable and keeps others no
   assert.match(invalid.message, /Incomplete Claude Code upstream response \(status 200.*upstream said: invalid_request_error: bad request/);
   assert.equal(invalid.retryable, false);
 });
+
+test("sends no cache breakpoints when Pi disables prompt caching", () => {
+  const marker = { type: "ephemeral", ttl: "1h" };
+  const body = {
+    tools: [
+      {
+        name: "mcp__pi__read",
+        // A schema property of the same name is user data and stays.
+        input_schema: { type: "object", properties: { cache_control: { type: "string" } } },
+        cache_control: marker,
+      },
+    ],
+    system: [{ type: "text", text: "prompt", cache_control: marker }],
+    messages: [
+      { role: "user", content: [{ type: "text", text: "first", cache_control: marker }] },
+      { role: "system", content: [{ type: "text", text: "environment", cache_control: marker }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "mcp__pi__read", input: {} }] },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: "file", cache_control: marker }] },
+        ],
+      },
+    ],
+  };
+  const frames = framesFor(body.messages);
+  const rewritten = JSON.parse(
+    rewriteInitialRequest(Buffer.from(JSON.stringify(body)), frames, [body.messages[1]], [], true).toString("utf8"),
+  ) as typeof body;
+
+  assert.doesNotMatch(JSON.stringify(rewritten), /"cache_control":\{"type":"ephemeral"/u);
+  assert.deepEqual(rewritten.tools[0]!.input_schema.properties, { cache_control: { type: "string" } });
+  // Without the flag, the same request keeps its breakpoints.
+  const cached = rewriteInitialRequest(Buffer.from(JSON.stringify(body)), frames, [body.messages[1]], []).toString("utf8");
+  assert.match(cached, /"cache_control":\{"type":"ephemeral"/u);
+});

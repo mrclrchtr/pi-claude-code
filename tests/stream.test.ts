@@ -131,6 +131,55 @@ for await (const line of input) {
   }
 });
 
+test("disables Claude Code's prompt caching only when Pi asks for no cache writes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-claude-code-stream-"));
+  const executable = join(root, "fake-claude.mjs");
+  await writeFile(
+    executable,
+    `#!/usr/bin/env node
+import readline from "node:readline";
+if (process.argv.includes("auth") && process.argv.includes("status")) {
+  console.log(JSON.stringify({loggedIn: true, authMethod: "claude.ai", subscriptionType: "test"}));
+  process.exit(0);
+}
+const input = readline.createInterface({input: process.stdin, crlfDelay: Infinity});
+for await (const line of input) {
+  const frame = JSON.parse(line);
+  if (frame.type !== "user") continue;
+  const text = String(process.env.DISABLE_PROMPT_CACHING ?? "unset");
+  const usage = {input_tokens: 3, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0};
+  const content = [{type: "text", text}];
+  console.log(JSON.stringify({type: "assistant", message: {id: "m_fake", role: "assistant", content, stop_reason: "end_turn", usage}}));
+  console.log(JSON.stringify({type: "stream_event", event: {type: "message_stop"}}));
+  console.log(JSON.stringify({type: "result", subtype: "success", is_error: false, usage, uuid: frame.uuid}));
+}
+`,
+    "utf8",
+  );
+  await chmod(executable, 0o755);
+
+  const cachingSeen = async (cacheRetention: "none" | "short"): Promise<string> => {
+    const model = CLAUDE_CODE_MODELS.find((candidate) => candidate.id === "claude-opus-5-5")!;
+    const stream = streamClaudeCode(
+      model,
+      { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "hi" }], timestamp: 0 }] } as never,
+      { env: { PI_CLAUDE_CODE_COMMAND: executable }, timeoutMs: 5_000, cacheRetention } as never,
+    );
+    const message = await stream.result();
+    assert.equal(message.stopReason, "stop", message.errorMessage);
+    return message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+  };
+
+  try {
+    // Pi sends compaction and branch summaries with cacheRetention "none".
+    assert.equal(await cachingSeen("none"), "1");
+    assert.equal(await cachingSeen("short"), "unset");
+  } finally {
+    await closeClaudeProcesses();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("spawns Claude Code in the session cwd named by Pi's system prompt", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "pi-claude-code-cwd-")));
   const executable = join(root, "fake-claude.mjs");

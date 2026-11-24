@@ -65,6 +65,11 @@ export interface RunClaudeInput {
   onEvent?: (event: AnthropicStreamEvent) => void;
   /** Pi session whose linear continuation may reuse a warm Claude process. */
   sessionId?: string;
+  /**
+   * Send no cache breakpoints, for Pi's `cacheRetention: "none"` (one-off requests such as
+   * compaction and branch summaries). Claude Code otherwise writes them to the one-hour cache.
+   */
+  disablePromptCache?: boolean;
 }
 
 export interface RunClaudeOutput {
@@ -576,6 +581,7 @@ function processEnvironment(
   input: Record<string, string | undefined> | undefined,
   extraBody: Record<string, unknown>,
   purpose: "request" | "discovery" = "request",
+  disablePromptCache = false,
 ): Record<string, string> {
   const env = claudeEnvironment({ ...process.env, ...input });
   const conflicts = conflictingEnvironment(env);
@@ -613,6 +619,7 @@ function processEnvironment(
     env.DISABLE_TELEMETRY = "1";
   }
   if (typeof extraBody.max_tokens === "number") env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(extraBody.max_tokens);
+  if (disablePromptCache) env.DISABLE_PROMPT_CACHING = "1";
   return env;
 }
 
@@ -924,11 +931,34 @@ export function capCacheBreakpoints(payload: { messages?: unknown; system?: unkn
   for (let i = fixed.length - 1; excess > 0 && i >= 0; i--, excess--) delete fixed[i]!.cache_control;
 }
 
+/**
+ * Remove every cache breakpoint, including tool-result content markers. Claude Code honors
+ * DISABLE_PROMPT_CACHING, but Pi's tools in CLAUDE_CODE_EXTRA_BODY and the replay rewrite
+ * carry their own markers.
+ */
+function removeCacheBreakpoints(payload: { messages?: unknown; system?: unknown; tools?: unknown }): void {
+  const markers: Record<string, unknown>[] = [];
+  collectCacheMarkers(payload.tools, markers);
+  collectCacheMarkers(payload.system, markers);
+  if (Array.isArray(payload.messages)) {
+    for (const message of payload.messages) {
+      const content = message && typeof message === "object" ? (message as NativeRequestMessage).content : undefined;
+      if (!Array.isArray(content)) continue;
+      collectCacheMarkers(content, markers);
+      for (const block of content) {
+        if (isBlock(block) && block.type === "tool_result") collectCacheMarkers(block.content, markers);
+      }
+    }
+  }
+  for (const block of markers) delete block.cache_control;
+}
+
 export function rewriteInitialRequest(
   body: Buffer,
   frames: NativeFrame[],
   initialSystemMessages: unknown[] | undefined,
   nativeSystemInjections?: NativeSystemInjection[],
+  disablePromptCache = false,
 ): Buffer {
   const payload = JSON.parse(body.toString("utf8")) as {
     messages?: NativeRequestMessage[];
@@ -968,8 +998,12 @@ export function rewriteInitialRequest(
     payload.messages = messages;
     normalizeLeadingSystemCache(payload.system);
   }
-  if (initialSystemMessages?.length || nativeSystemInjections) setReplayCacheBreakpoints(messages!);
-  capCacheBreakpoints(payload);
+  if (disablePromptCache) {
+    removeCacheBreakpoints(payload);
+  } else {
+    if (initialSystemMessages?.length || nativeSystemInjections) setReplayCacheBreakpoints(messages!);
+    capCacheBreakpoints(payload);
+  }
 
   return Buffer.from(JSON.stringify(payload));
 }
@@ -1010,7 +1044,7 @@ function frameHistoryHash(frames: NativeFrame[]): string {
 
 function launchPlan(input: RunClaudeInput): ClaudeLaunchPlan {
   const timeoutMs = input.timeoutMs ?? 180_000;
-  const env = processEnvironment(input.env, input.extraBody);
+  const env = processEnvironment(input.env, input.extraBody, "request", input.disablePromptCache);
   return {
     env,
     timeoutMs,
@@ -1212,7 +1246,14 @@ class ClaudeProcess {
     };
     this.relay.beginTurn(
       deliver,
-      (body) => rewriteInitialRequest(body, input.frames, input.initialSystemMessages, input.nativeSystemInjections),
+      (body) =>
+        rewriteInitialRequest(
+          body,
+          input.frames,
+          input.initialSystemMessages,
+          input.nativeSystemInjections,
+          input.disablePromptCache,
+        ),
       input.betas,
     );
 
