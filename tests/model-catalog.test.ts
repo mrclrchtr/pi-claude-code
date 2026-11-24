@@ -4,6 +4,7 @@ import {
   CLAUDE_CODE_MODELS,
   modelFromDiscovery,
   nativeModel,
+  registerModel,
   supportsDisabledThinking,
   supportsNativeToolChanges,
 } from "../src/model-catalog.ts";
@@ -124,4 +125,28 @@ test("Pi's catalog decides whether thinking can be disabled; Claude Code's answe
   assert.equal(supportsDisabledThinking("claude-future-9"), false, "an unlisted adaptive model is assumed newer");
   modelFromDiscovery({ ...unlisted, supportsThinkingOff: true });
   assert.equal(supportsDisabledThinking("claude-future-9"), true);
+});
+
+test("a model restored from Pi's store brings back its discovered route and thinking support", () => {
+  const opus = {
+    value: "opus",
+    resolvedModel: "claude-opus-5-5",
+    displayName: "Opus 5.5",
+    description: "For complex work and everyday tasks",
+    supportsAdaptiveThinking: true,
+  };
+  // Pi persists discovered models as JSON and restores them without calling the provider.
+  const stored = JSON.parse(JSON.stringify(modelFromDiscovery(opus)));
+  // A reloaded module starts from the fallback catalog, which routes Opus through `opus[1m]`.
+  modelFromDiscovery({ ...opus, value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]" });
+  assert.equal(nativeModel("claude-opus-5-5"), "opus[1m]");
+
+  registerModel(stored);
+  assert.equal(nativeModel("claude-opus-5-5"), "opus");
+
+  // A row that does not belong to the model's id is ignored.
+  const before = nativeModel("claude-sonnet-5-5");
+  registerModel({ ...stored, id: "claude-sonnet-5-5" });
+  assert.equal(nativeModel("claude-sonnet-5-5"), before);
+  assert.notEqual(before, "opus");
 });

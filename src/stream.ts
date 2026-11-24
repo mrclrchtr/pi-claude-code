@@ -21,7 +21,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { describeUsageCreditsRejection } from "./billing.ts";
 import { runClaudeRequest } from "./claude-cli.ts";
-import { nativeModel, supportsNativeToolChanges } from "./model-catalog.ts";
+import { nativeModel, registerModel, supportsNativeToolChanges } from "./model-catalog.ts";
 import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage, NativeUsage } from "./native-types.ts";
 import {
   buildExtraBody,
@@ -409,6 +409,7 @@ export function streamClaudeCode(
 
   void (async () => {
     try {
+      registerModel(model);
       const context = { ...sourceContext, messages: prepareMessages(sourceContext.messages, model) };
       const nativeTranscript = prepareNativeTranscript(
         context.messages,

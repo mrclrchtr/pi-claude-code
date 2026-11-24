@@ -4,7 +4,14 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 export const PROVIDER_ID = "claude-code";
 export const API_ID = "claude-code-stream-json";
 
-export type ClaudeCodeModel = Model<typeof API_ID>;
+export type ClaudeCodeModel = Model<typeof API_ID> & {
+  /**
+   * The Claude Code catalog row this model came from. Pi persists discovered models and restores
+   * them without calling the provider, so the row travels with the model to rebuild its route and
+   * thinking support after a reload.
+   */
+  claudeCode?: DiscoveredClaudeModel;
+};
 
 export interface DiscoveredClaudeModel {
   value: string;
@@ -176,6 +183,24 @@ function fromBuiltin(info: DiscoveredClaudeModel, id: string, builtin: Model<"an
 
 /** Convert a Claude Code catalog row into Pi's built-in Anthropic naming and pricing. */
 export function modelFromDiscovery(info: DiscoveredClaudeModel): ClaudeCodeModel {
+  const { id, builtin } = registerDiscoveredModel(info);
+  const model = builtin ? fromBuiltin(info, id, builtin) : fallbackModel(info, id);
+  return { ...model, claudeCode: { ...info } };
+}
+
+/**
+ * Rebuild the route and thinking support from the catalog row a model carries. Models restored
+ * from Pi's store skip modelFromDiscovery, so without this they would use the fallback routes.
+ */
+export function registerModel(model: Model<any>): void {
+  const info = (model as ClaudeCodeModel).claudeCode;
+  if (info && canonicalModelId(info) === model.id) registerDiscoveredModel(info);
+}
+
+function registerDiscoveredModel(info: DiscoveredClaudeModel): {
+  id: string;
+  builtin?: Model<"anthropic-messages">;
+} {
   const id = canonicalModelId(info);
   const builtinId = id === "default" ? withoutContextSuffix(info.resolvedModel || "") : id;
   const builtin = BUILTIN_ANTHROPIC_MODELS[builtinId];
@@ -192,7 +217,7 @@ export function modelFromDiscovery(info: DiscoveredClaudeModel): ClaudeCodeModel
       ? builtin.thinkingLevelMap?.off !== null
       : (info.supportsThinkingOff ?? info.supportsAdaptiveThinking !== true),
   );
-  return builtin ? fromBuiltin(info, id, builtin) : fallbackModel(info, id);
+  return { id, builtin };
 }
 
 export const CLAUDE_CODE_MODELS: ClaudeCodeModel[] = FALLBACK_DISCOVERY.map(modelFromDiscovery);
