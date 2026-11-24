@@ -46,6 +46,7 @@ flowchart TD
 | timmyjl12 fork `520ee62` (tool-call part) | fix: reject a tool call that is still open at message_stop | fork-only, no upstream PR |
 | local | fix: keep discovered routes for models Pi restores from its store | no upstream PR yet |
 | local | fix: close the session's warm Claude process on /reload | no upstream PR yet |
+| local | fix: register restored models' Claude Code rows when Pi refreshes the provider | no upstream PR yet |
 
 Update this table when you add or drop a change.
 
