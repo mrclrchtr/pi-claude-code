@@ -161,3 +161,24 @@ test("a model restored from Pi's store brings back its discovered route and thin
   assert.equal(nativeModel("claude-sonnet-5-5"), before);
   assert.notEqual(before, "opus");
 });
+
+test("models report Claude Code's one-hour prompt cache so Pi does not warm it every five minutes", async () => {
+  const listed = modelFromDiscovery({ value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "" });
+  const unlisted = modelFromDiscovery({ value: "claude-future-9", displayName: "Future 9", description: "" });
+  for (const model of [listed, unlisted]) assert.deepEqual(model.promptCache, { short: 3600, long: 3600 });
+
+  // A model stored by an earlier version still carries Pi's built-in 300 s default.
+  const stored = { ...JSON.parse(JSON.stringify(listed)), promptCache: { short: 300, long: 3600 } };
+  const provider = createClaudeCodeProvider();
+  await provider.refreshModels!({
+    stored: { models: [stored], checkedAt: Date.now() },
+    publish: async (publication) => {
+      publication.update?.();
+      return true;
+    },
+    allowNetwork: false,
+    signal: new AbortController().signal,
+  });
+  const restored = provider.getModels().find((model) => model.id === "claude-opus-5-5");
+  assert.deepEqual(restored?.promptCache, { short: 3600, long: 3600 });
+});

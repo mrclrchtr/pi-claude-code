@@ -141,6 +141,15 @@ function predecessorModel(id: string): Model<"anthropic-messages"> | undefined {
   return best?.model;
 }
 
+/**
+ * Prompt-cache lifetime in seconds for every retention. Claude Code and the turn relay write
+ * one-hour cache entries for subscription requests, whatever retention Pi asks for. Pi's built-in
+ * Anthropic metadata says 300 s for the default retention, so Pi's cache warmer would otherwise
+ * replay the request through Claude Code about every 4.5 minutes and spend plan usage on entries
+ * that are still valid.
+ */
+const PROMPT_CACHE: NonNullable<Model<any>["promptCache"]> = { short: 3600, long: 3600 };
+
 function fallbackModel(info: DiscoveredClaudeModel, id: string): ClaudeCodeModel {
   const supported = info.supportedEffortLevels;
   const thinkingLevelMap = supported?.length
@@ -160,6 +169,7 @@ function fallbackModel(info: DiscoveredClaudeModel, id: string): ClaudeCodeModel
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: longContext ? 1_000_000 : (predecessor?.contextWindow ?? 200_000),
     maxTokens: predecessor?.maxTokens ?? 64_000,
+    promptCache: { ...PROMPT_CACHE },
   };
 }
 
@@ -178,6 +188,7 @@ function fromBuiltin(info: DiscoveredClaudeModel, id: string, builtin: Model<"an
     api: API_ID,
     provider: PROVIDER_ID,
     baseUrl: "process://claude-code",
+    promptCache: { ...PROMPT_CACHE },
   };
 }
 
@@ -193,6 +204,8 @@ export function modelFromDiscovery(info: DiscoveredClaudeModel): ClaudeCodeModel
  * from Pi's store skip modelFromDiscovery, so without this they would use the fallback routes.
  */
 export function registerModel(model: Model<any>): void {
+  // Models stored by an earlier version carry the built-in 300 s lifetime.
+  model.promptCache = { ...PROMPT_CACHE };
   const info = (model as ClaudeCodeModel).claudeCode;
   if (info && canonicalModelId(info) === model.id) registerDiscoveredModel(info);
 }
