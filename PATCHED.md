@@ -49,6 +49,7 @@ flowchart TD
 | local | fix: register restored models' Claude Code rows when Pi refreshes the provider | no upstream PR yet |
 | local | fix: report Claude Code's one-hour prompt cache so Pi stops warming it every five minutes | no upstream PR yet |
 | local | feat: show Claude plan usage in Pi's footer | no upstream PR yet |
+| local | fix: send no cache breakpoints when Pi asks for cacheRetention none | no upstream PR yet |
 
 Update this table when you add or drop a change.
 
