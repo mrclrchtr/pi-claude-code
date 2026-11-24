@@ -38,6 +38,12 @@ flowchart TD
 | upstream PR #66 | fix: add the per-message effort beta for forwarded system config | open upstream |
 | upstream PR #74 | fix: disable Claude Code attachments so @tokens add no system notice | open upstream |
 | upstream PR #75 | fix: start Claude Code in the session cwd instead of process.cwd() | open upstream |
+| timmyjl12 fork `4d213d0` (Node 26 part) | test: run the suite on Node 26 with jiti | fork-only, no upstream PR |
+| timmyjl12 fork `0ad5ed6` | fix: stop Claude Code children from overwriting Pi's terminal title | fork-only, no upstream PR |
+| timmyjl12 fork `063b3a3` (supportsThinkingOff part) | fix: trust Claude Code's supportsThinkingOff over the catalog's guess | fork-only, no upstream PR |
+| timmyjl12 fork `8d26edd` | fix: omit the thinking field for models that support neither mode | fork-only, no upstream PR |
+| timmyjl12 fork `99acddd` | fix: run cache-warming replays on a one-shot process so the session's Claude process is kept | fork-only, no upstream PR |
+| timmyjl12 fork `520ee62` (tool-call part) | fix: reject a tool call that is still open at message_stop | fork-only, no upstream PR |
 
 Update this table when you add or drop a change.
 
