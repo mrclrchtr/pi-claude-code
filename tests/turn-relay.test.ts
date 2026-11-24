@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import * as http from "node:http";
-import httpModule from "node:http";
-import { syncBuiltinESMExports } from "node:module";
 import * as net from "node:net";
 import test from "node:test";
 import { describeFailure, TurnRelay } from "../src/turn-relay.ts";
@@ -253,16 +251,18 @@ test("describes relay failures with their error code and nested errors", () => {
 
 test("gives each upstream address at least 5 s to connect, keeping a larger Node default", async () => {
   const defaultAttemptTimeout = net.getDefaultAutoSelectFamilyAttemptTimeout();
-  const original = httpModule.request;
+  // Spy on the shared agent's socket factory: module namespace bindings are not patchable under every TS loader.
+  type CreateConnection = (options: net.NetConnectOpts, callback?: () => void) => net.Socket;
+  const agent = http.globalAgent as unknown as { createConnection: CreateConnection };
   const seen: unknown[] = [];
-  (httpModule as { request: unknown }).request = (options: { autoSelectFamilyAttemptTimeout?: unknown }, ...rest: unknown[]) => {
-    seen.push(options.autoSelectFamilyAttemptTimeout);
-    return (original as (...args: unknown[]) => unknown)(options, ...rest);
+  agent.createConnection = (options, callback) => {
+    seen.push((options as net.TcpNetConnectOpts).autoSelectFamilyAttemptTimeout);
+    return net.createConnection(options, callback);
   };
-  syncBuiltinESMExports();
   const upstream = http.createServer(async (request, response) => {
     for await (const _chunk of request);
-    response.writeHead(500).end();
+    // Close the socket so each request connects again and reaches the spy.
+    response.writeHead(500, { connection: "close" }).end();
   });
   const upstreamPort = await listen(upstream);
   const relay = new TurnRelay(`http://127.0.0.1:${upstreamPort}`, 5_000);
@@ -280,8 +280,7 @@ test("gives each upstream address at least 5 s to connect, keeping a larger Node
     assert.equal(seen[1], 10_000);
   } finally {
     net.setDefaultAutoSelectFamilyAttemptTimeout(defaultAttemptTimeout);
-    (httpModule as { request: unknown }).request = original;
-    syncBuiltinESMExports();
+    delete (agent as Partial<typeof agent>).createConnection;
     await relay.close();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
