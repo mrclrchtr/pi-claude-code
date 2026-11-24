@@ -1,6 +1,6 @@
-import { createProvider, type AuthContext, type ProviderEnv } from "@earendil-works/pi-ai";
+import { createProvider, type AuthContext, type ProviderEnv, type RefreshModelsContext } from "@earendil-works/pi-ai";
 import { discoverClaudeModels, getClaudeStatus, LOGIN_HINT, POWERSHELL_ENV } from "./claude-cli.ts";
-import { API_ID, CLAUDE_CODE_MODELS, modelFromDiscovery, PROVIDER_ID } from "./model-catalog.ts";
+import { API_ID, CLAUDE_CODE_MODELS, modelFromDiscovery, PROVIDER_ID, registerModel } from "./model-catalog.ts";
 import { streamClaudeCode } from "./stream.ts";
 
 const PROVIDER_ENV_NAMES = [
@@ -39,7 +39,7 @@ export function createClaudeCodeProvider() {
     refresh: "claude-code-external",
     expires: Date.now() + 365 * 24 * 60 * 60 * 1_000,
   });
-  return createProvider({
+  const provider = createProvider({
     id: PROVIDER_ID,
     name: "Claude Code Subscription (Experimental)",
     baseUrl: "process://claude-code",
@@ -109,6 +109,17 @@ export function createClaudeCodeProvider() {
       streamSimple: streamClaudeCode,
     },
   });
+  const refreshModels = provider.refreshModels;
+  if (!refreshModels) return provider;
+  return {
+    ...provider,
+    async refreshModels(context: RefreshModelsContext) {
+      await refreshModels(context);
+      // Pi restores stored models (on startup and /reload) without calling fetchModels. Register
+      // the Claude Code rows they carry, so requests use the discovered routes, not the fallback.
+      for (const model of provider.getModels()) registerModel(model);
+    },
+  };
 }
 
 export { API_ID, PROVIDER_ID };

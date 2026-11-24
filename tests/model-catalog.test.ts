@@ -8,6 +8,7 @@ import {
   supportsDisabledThinking,
   supportsNativeToolChanges,
 } from "../src/model-catalog.ts";
+import { createClaudeCodeProvider } from "../src/provider.ts";
 
 test("fallback catalog matches Claude Code's selectable model families", () => {
   assert.deepEqual(
@@ -127,7 +128,7 @@ test("Pi's catalog decides whether thinking can be disabled; Claude Code's answe
   assert.equal(supportsDisabledThinking("claude-future-9"), true);
 });
 
-test("a model restored from Pi's store brings back its discovered route and thinking support", () => {
+test("a model restored from Pi's store brings back its discovered route and thinking support", async () => {
   const opus = {
     value: "opus",
     resolvedModel: "claude-opus-5-5",
@@ -141,7 +142,17 @@ test("a model restored from Pi's store brings back its discovered route and thin
   modelFromDiscovery({ ...opus, value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]" });
   assert.equal(nativeModel("claude-opus-5-5"), "opus[1m]");
 
-  registerModel(stored);
+  // Pi's offline restore phase, as on startup and /reload: no fetchModels, no network.
+  const provider = createClaudeCodeProvider();
+  await provider.refreshModels!({
+    stored: { models: [stored], checkedAt: Date.now() },
+    publish: async (publication) => {
+      publication.update?.();
+      return true;
+    },
+    allowNetwork: false,
+    signal: new AbortController().signal,
+  });
   assert.equal(nativeModel("claude-opus-5-5"), "opus");
 
   // A row that does not belong to the model's id is ignored.
