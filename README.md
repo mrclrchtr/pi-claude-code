@@ -114,6 +114,11 @@ Requests made through this extension count against your Claude subscription's
 usage quota and rate limits, the same as any other Claude Code usage. The
 extension does not give you separate or unlimited usage.
 
+After each response, Pi's footer shows how much of your plan's usage windows
+Claude Code reports as used and when the tightest one resets, for example
+`Claude 7d 86% · reset Thu 23:00`. It turns yellow once Claude Code warns about
+a window and red once a window rejects requests.
+
 The extension ignores `ANTHROPIC_API_KEY` in Claude Code child processes without
 changing your environment. To avoid silently changing how you're authenticated
 or billed, it still rejects auth-token, proxy, Bedrock, Vertex, or Foundry
