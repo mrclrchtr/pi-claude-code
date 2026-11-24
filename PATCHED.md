@@ -22,8 +22,24 @@ flowchart TD
 | Source | Commit subject | Status |
 | --- | --- | --- |
 | upstream PR #73 | fix: disable Claude Code's silent turn reminder in workers | open upstream |
+| upstream PR #39 | fix: answer orphaned tool calls before replay | open upstream |
+| upstream PR #41 | fix: cap request-wide cache breakpoints at four | open upstream |
+| upstream PR #47 | fix: keep Pi's own image scale note when rebuilding user messages | open upstream |
+| upstream PR #55 | fix: drop blank user text that Claude Code removes from its request | open upstream |
+| upstream PR #69 | fix: default the output budget to the model's maxTokens | open upstream |
+| upstream PR #26 | fix(relay): give each upstream address at least 5 s to connect | open upstream |
+| upstream PR #58 | fix: send failed tool results as text so they line up with Claude Code's copy | open upstream |
+| upstream PR #68 | fix: accept the images the CLI removes to fit its media limits (2 commits) | open upstream |
+| upstream PR #32 | fix: accept a string-content first user message in rewriteInitialRequest | open upstream |
+| upstream PR #57 | fix(replay): omit historical output config on fallback (2 commits) | open upstream |
+| upstream PR #56 | fix: report a server error event in a 200 stream as retryable | open upstream |
+| upstream PR #51 | fix: tag replayed assistant turns with their model (2 commits) | open upstream |
 
 Update this table when you add or drop a change.
+
+Before adding an upstream PR, review its diff for security (dependencies,
+network targets, process spawning, file and env access, hidden Unicode) and
+cherry-pick the reviewed head commit, not a moving branch.
 
 ## Add an upstream PR
 
