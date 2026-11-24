@@ -95,11 +95,50 @@ function canonicalModelId(info: DiscoveredClaudeModel): string {
   return withoutContextSuffix(info.resolvedModel || ALIASES[withoutContextSuffix(info.value)] || info.value);
 }
 
+const MODEL_VERSION = /^(claude-[a-z]+)-(\d+(?:-\d+)*)$/u;
+
+/** Version parts of an undated model id such as `claude-fable-5-1`; dated snapshots are not family heads. */
+function modelVersion(id: string): { family: string; parts: number[] } | undefined {
+  const match = MODEL_VERSION.exec(id);
+  if (!match) return undefined;
+  const parts = match[2].split("-").map(Number);
+  return parts.some((part) => part > 999) ? undefined : { family: match[1], parts };
+}
+
+function compareVersions(left: number[], right: number[]): number {
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/**
+ * The newest built-in model of the same family released before `id`. Claude Code serves models
+ * before Pi's bundled catalog lists them (Fable 5.2 arrived as an unknown id), and its discovery
+ * rows carry no context window or output limit. A successor keeps its predecessor's limits far more
+ * often than it falls back to 200K, so the predecessor's limits are the better guess.
+ */
+function predecessorModel(id: string): Model<"anthropic-messages"> | undefined {
+  const target = modelVersion(id);
+  if (!target) return undefined;
+  let best: { model: Model<"anthropic-messages">; parts: number[] } | undefined;
+  for (const model of Object.values(BUILTIN_ANTHROPIC_MODELS)) {
+    const candidate = modelVersion(model.id);
+    if (!candidate || candidate.family !== target.family) continue;
+    if (compareVersions(candidate.parts, target.parts) >= 0) continue;
+    if (!best || compareVersions(candidate.parts, best.parts) > 0) best = { model, parts: candidate.parts };
+  }
+  return best?.model;
+}
+
 function fallbackModel(info: DiscoveredClaudeModel, id: string): ClaudeCodeModel {
   const supported = info.supportedEffortLevels;
   const thinkingLevelMap = supported?.length
     ? (Object.fromEntries(supported.map((level) => [level, level])) as ClaudeCodeModel["thinkingLevelMap"])
     : undefined;
+  const predecessor = predecessorModel(id);
+  const longContext = /\b1M context\b/iu.test(info.description) || info.value.endsWith("[1m]");
   return {
     id,
     name: `${info.displayName} (Claude Code)`,
@@ -110,8 +149,8 @@ function fallbackModel(info: DiscoveredClaudeModel, id: string): ClaudeCodeModel
     ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: /\b1M context\b/iu.test(info.description) ? 1_000_000 : 200_000,
-    maxTokens: 64_000,
+    contextWindow: longContext ? 1_000_000 : (predecessor?.contextWindow ?? 200_000),
+    maxTokens: predecessor?.maxTokens ?? 64_000,
   };
 }
 

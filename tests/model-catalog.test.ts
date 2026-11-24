@@ -59,4 +59,42 @@ test("maps discovered aliases to stable canonical Pi model ids", () => {
   });
   assert.equal(future.id, "claude-future-1");
   assert.equal(future.cost.input, 0);
+  // No built-in model of that family: keep the conservative defaults.
+  assert.equal(future.contextWindow, 200_000);
+  assert.equal(future.maxTokens, 64_000);
+});
+
+test("gives a model newer than Pi's catalog its predecessor's context window and output limit", () => {
+  // Claude Code served Fable 5.2 as `fable` before Pi listed it, with no "1M context" description.
+  const fable = modelFromDiscovery({
+    value: "fable",
+    resolvedModel: "claude-fable-5-99",
+    displayName: "Fable 5.99",
+    description: "For your toughest challenges",
+    supportsEffort: true,
+    supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+    supportsAdaptiveThinking: true,
+  });
+  assert.equal(fable.id, "claude-fable-5-99");
+  assert.equal(fable.contextWindow, 1_000_000);
+  assert.equal(fable.maxTokens, 128_000);
+  // Pricing is not inferred: an unlisted model may be priced differently.
+  assert.equal(fable.cost.input, 0);
+
+  // Only older releases count as predecessors, and dated snapshots are never family heads.
+  const ancient = modelFromDiscovery({
+    value: "claude-sonnet-4-1",
+    resolvedModel: "claude-sonnet-4-1",
+    displayName: "Sonnet 4.1",
+    description: "Older",
+  });
+  assert.equal(ancient.contextWindow, 200_000);
+  assert.equal(ancient.maxTokens, 64_000);
+  const dated = modelFromDiscovery({
+    value: "claude-haiku-4-6-20260101",
+    resolvedModel: "claude-haiku-4-6-20260101",
+    displayName: "Haiku snapshot",
+    description: "Dated",
+  });
+  assert.equal(dated.contextWindow, 200_000);
 });
