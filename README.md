@@ -71,6 +71,12 @@ These environment variables are optional:
 - `PI_CLAUDE_CODE_POWERSHELL`: PowerShell executable used to run a `.ps1`
   `PI_CLAUDE_CODE_COMMAND` (default: `pwsh` when installed, otherwise
   `powershell.exe`).
+- `PI_CLAUDE_CODE_DEBUG_DIR`: directory where the extension writes one JSON
+  file per Claude request, for diagnosing prompt-cache misses. Each file holds
+  the request as Claude Code sent it, the request as the extension forwarded
+  it, the forwarded headers without credentials, and the response's token
+  usage. The requests contain your whole conversation, so the files are
+  readable only by you. Set it before starting Pi; it is off by default.
 
 ### Windows
 

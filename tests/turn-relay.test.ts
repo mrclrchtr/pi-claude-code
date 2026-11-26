@@ -334,3 +334,62 @@ test("gives each upstream address at least 5 s to connect, keeping a larger Node
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
 });
+
+test("dumps each request without credentials only when a debug directory is set", async () => {
+  const { mkdtemp, readdir, readFile, rm, stat } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const upstream = http.createServer(async (request, response) => {
+    for await (const _chunk of request);
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    const usage = { input_tokens: 2, output_tokens: 1, cache_read_input_tokens: 7 };
+    const events = [
+      { type: "message_start", message: { id: "m1", role: "assistant", content: [], usage } },
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage },
+      { type: "message_stop" },
+    ];
+    response.end(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
+  });
+  const port = await listen(upstream);
+  const root = await mkdtemp(join(tmpdir(), "pi-claude-code-debug-"));
+  const directory = join(root, "dumps");
+  const send = async (relay: TurnRelay) => {
+    const baseUrl = await relay.start();
+    const response = await fetch(`${baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { authorization: "Bearer secret", "x-api-key": "secret", "anthropic-beta": "kept" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+    });
+    await response.text();
+    await relay.settled();
+    await relay.close();
+  };
+
+  try {
+    await send(new TurnRelay(`http://127.0.0.1:${port}`, 5_000, undefined, undefined, [], ""));
+    await assert.rejects(readdir(directory));
+
+    await send(
+      new TurnRelay(
+        `http://127.0.0.1:${port}`,
+        5_000,
+        undefined,
+        (body) => Buffer.from(JSON.stringify({ ...JSON.parse(body.toString("utf8")), rewritten: true })),
+        [],
+        directory,
+      ),
+    );
+    const files = await readdir(directory);
+    assert.equal(files.length, 1);
+    assert.equal((await stat(join(directory, files[0]!))).mode & 0o777, 0o600);
+    const dump = JSON.parse(await readFile(join(directory, files[0]!), "utf8"));
+    assert.deepEqual(dump.original, { messages: [{ role: "user", content: "hi" }] });
+    assert.equal(dump.sent.rewritten, true);
+    assert.equal(dump.usage.cache_read_input_tokens, 7);
+    assert.equal(dump.headers["anthropic-beta"], "kept");
+    assert.doesNotMatch(JSON.stringify(dump), /secret/u);
+  } finally {
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});

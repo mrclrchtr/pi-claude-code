@@ -1,6 +1,8 @@
 import * as http from "node:http";
 import * as https from "node:https";
 import { randomBytes } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import * as net from "node:net";
 import type { AddressInfo } from "node:net";
 import type { AnthropicStreamEvent, NativeContentBlock, NativeMessage } from "./native-types.ts";
@@ -121,6 +123,15 @@ const STRIPPED_REQUEST_HEADERS = new Set([
 const STRIPPED_RESPONSE_HEADERS = new Set(["connection", "transfer-encoding", "server", "date"]);
 
 /**
+ * When set, the relay writes one JSON file per upstream request to this directory: Claude Code's
+ * request body, the body forwarded upstream, the forwarded headers without credentials, and the
+ * response usage. The bodies contain the whole conversation. Meant for diagnosing cache misses.
+ */
+export const DEBUG_DIR_ENV = "PI_CLAUDE_CODE_DEBUG_DIR";
+
+const SECRET_HEADER = /authorization|api-key|cookie|token|secret/iu;
+
+/**
  * Per-address connect budget for Node's Happy Eyeballs. The 250 ms default abandons IPv4 handshakes that
  * need a retransmitted SYN; api.anthropic.com has a single IPv4 address, so on hosts without an IPv6 route
  * the request then fails with AggregateError [ETIMEDOUT, ENETUNREACH]. 5 s covers two SYN retransmissions
@@ -195,6 +206,7 @@ export class TurnRelay {
   private baseUrl?: string;
   private transformRequest?: (body: Buffer) => Buffer;
   private requestBetas: string[] = [];
+  private forwardedHeaders?: http.OutgoingHttpHeaders;
 
   constructor(
     upstream = "https://api.anthropic.com",
@@ -202,6 +214,8 @@ export class TurnRelay {
     onEvent?: (event: AnthropicStreamEvent) => void,
     transformRequest?: (body: Buffer) => Buffer,
     requestBetas: string[] = [],
+    /** Directory for request dumps; see {@link DEBUG_DIR_ENV}. Off when empty. */
+    private readonly debugDir = process.env[DEBUG_DIR_ENV],
   ) {
     this.upstream = new URL(upstream);
     const loopback = ["127.0.0.1", "::1", "localhost"].includes(this.upstream.hostname);
@@ -321,6 +335,7 @@ export class TurnRelay {
     this.sockets.add(response);
 
     let upstreamRequest: http.ClientRequest | undefined;
+    this.forwardedHeaders = undefined;
     try {
       let body = await this.readBody(request);
       this.originalRequestBody = Buffer.from(body);
@@ -360,6 +375,7 @@ export class TurnRelay {
           net.getDefaultAutoSelectFamilyAttemptTimeout(),
         ),
       };
+      this.forwardedHeaders = headers;
       upstreamRequest = transport.request(options);
       this.sockets.add(upstreamRequest);
 
@@ -400,6 +416,40 @@ export class TurnRelay {
       this.sockets.delete(request);
       this.sockets.delete(response);
       upstreamRequest?.destroy();
+      if (this.debugDir) await this.writeDebugDump(this.debugDir);
+    }
+  }
+
+  /** Record what Claude Code sent, what was forwarded, and the usage, for diagnosing cache misses. */
+  private async writeDebugDump(directory: string): Promise<void> {
+    const relay = this.prefix.slice(-8);
+    const json = (body: Buffer | undefined): unknown => {
+      if (!body) return undefined;
+      try {
+        return JSON.parse(body.toString("utf8"));
+      } catch {
+        return body.toString("utf8");
+      }
+    };
+    const headers = Object.fromEntries(
+      Object.entries(this.forwardedHeaders ?? {}).filter(([name]) => !SECRET_HEADER.test(name)),
+    );
+    try {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const name = `${new Date().toISOString().replaceAll(":", "-")}-${process.pid}-${relay}.json`;
+      const dump = {
+        relay,
+        pid: process.pid,
+        status: this.status,
+        requestId: this.requestId,
+        headers,
+        usage: this.capture.message?.usage,
+        original: json(this.originalRequestBody),
+        sent: json(this.requestBody),
+      };
+      await writeFile(join(directory, name), JSON.stringify(dump), { mode: 0o600 });
+    } catch {
+      // A diagnostic dump must never fail the turn.
     }
   }
 
