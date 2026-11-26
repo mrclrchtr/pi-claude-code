@@ -52,7 +52,8 @@ flowchart TD
 | local | feat: show every plan window with bars, and in SuPi's session line | local only (SuPi-specific) |
 | local | fix: send no cache breakpoints when Pi asks for cacheRetention none | no upstream PR yet |
 | local | fix: give Claude Code Pi's context window so it stops refusing prompts locally | no upstream PR yet |
-| local | fix: drop Claude Code's date reminder from the middle of the history | no upstream PR yet |
+| local | fix: drop Claude Code's date reminder from the middle of the history | branch `fix/date-reminder`, linked from upstream issue #34 |
+| local | feat: dump relay requests to PI_CLAUDE_CODE_DEBUG_DIR for cache-miss diagnosis | no upstream PR yet |
 
 Update this table when you add or drop a change.
 
